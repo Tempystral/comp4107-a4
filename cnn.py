@@ -41,6 +41,9 @@ with tf.name_scope("Data") as scope:                    # Training data shape: (
     y_train = utils.to_categorical(Ytr)                 # Training label shape: (50000, 10)
     y_test = utils.to_categorical(Yte)                  # Testing label shape: (10000, 10)
 
+    x_train = x_train.astype('float32') / 255.0
+    x_test = x_test.astype('float32') / 255.0
+
 with tf.name_scope("Placeholders") as scope:
     X = tf.placeholder("float", [None, 28, 28, 1])
     Y = tf.placeholder("float", [None, 10])
