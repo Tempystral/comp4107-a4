@@ -15,21 +15,21 @@ test_size = 256
 def init_weights(shape):
     return tf.Variable(tf.random_normal(shape, stddev=0.01))
 
-def model(X, w, w_fc, w_o, p_keep_conv, p_keep_hidden):
-    l1a = tf.nn.relu(tf.nn.conv2d(X, w,                       # l1a shape=(?, 28, 28, 32)
-                        strides=[1, 1, 1, 1], padding='SAME'))
-    l1 = tf.nn.max_pool(l1a, ksize=[1, 2, 2, 1],              # l1 shape=(?, 14, 14, 32)
-                        strides=[1, 2, 2, 1], padding='SAME')
-    l1 = tf.nn.dropout(l1, p_keep_conv)
+def model(X, w, w_fc, w_o, p_keep_convolution, p_keep_hidden):
+    l1a = tf.nn.relu(tf.nn.conv2d(X, w, strides=[1, 1, 1, 1], padding='SAME')) # l1a shape=(?, 28, 28, 32)
+    l1 = tf.nn.max_pool(l1a, ksize=[1, 2, 2, 1],
+                           strides=[1, 2, 2, 1], padding='SAME') # l1 shape=(?, 14, 14, 32)
+    l1 = tf.nn.dropout(l1, p_keep_convolution)
 
 
     l3 = tf.reshape(l1, [-1, w_fc.get_shape().as_list()[0]])    # reshape to (?, 14x14x32)
-    l3 = tf.nn.dropout(l3, p_keep_conv)
+    l3 = tf.nn.dropout(l3, p_keep_convolution)
 
     l4 = tf.nn.relu(tf.matmul(l3, w_fc))
     l4 = tf.nn.dropout(l4, p_keep_hidden)
 
     pyx = tf.matmul(l4, w_o)
+    print("l1a:", l1a.shape, "\nl1:", l1.shape, "\nl3:", l3.shape, "\nl4:", l4.shape, "\npyx:", pyx.shape)
     return pyx
 
 ############################
@@ -41,8 +41,8 @@ with tf.name_scope("Data") as scope:                    # Training data shape: (
     y_train = utils.to_categorical(Ytr)                 # Training label shape: (50000, 10)
     y_test = utils.to_categorical(Yte)                  # Testing label shape: (10000, 10)
 
-    x_train = x_train.astype('float32') / 255.0
-    x_test = x_test.astype('float32') / 255.0
+    x_train = x_train.astype('float32') / 255.0         # Normalize input dataset
+    x_test = x_test.astype('float32') / 255.0           # Also, labels are one-hot
 
 with tf.name_scope("Placeholders") as scope:
     X = tf.placeholder("float", [None, 28, 28, 1])
@@ -50,11 +50,11 @@ with tf.name_scope("Placeholders") as scope:
 
 with tf.name_scope("Weights") as scope:
     w = init_weights([3, 3, 1, 32])       # 3x3x1 conv, 32 outputs
-    w_fc = init_weights([32 * 14 * 14, 625]) # FC 32 * 14 * 14 inputs, 625 outputs
+    w_fc = init_weights([14 * 14 * 32, 625]) # FC 32 * 14 * 14 inputs, 625 outputs
     w_o = init_weights([625, 10])         # FC 625 inputs, 10 outputs (labels)
 
 with tf.name_scope("Model") as scope:
-    p_keep_conv = tf.placeholder("float")
+    p_keep_convolution = tf.placeholder("float")
     p_keep_hidden = tf.placeholder("float")
     py_x = model(X, w, w_fc, w_o, p_keep_conv, p_keep_hidden)
 
