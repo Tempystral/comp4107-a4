@@ -8,6 +8,9 @@ tf.logging.set_verbosity(tf.logging.ERROR)
 batch_size = 128
 test_size = 256
 
+cnn_layer_size = 3
+max_pool_size = 2 # the inner two values of ksize
+
 ###########################
 ######## Functions ########
 ###########################
@@ -15,21 +18,31 @@ test_size = 256
 def init_weights(shape):
     return tf.Variable(tf.random_normal(shape, stddev=0.01))
 
-def model(X, w, w_fc, w_o, p_keep_convolution, p_keep_hidden):
-    l1a = tf.nn.relu(tf.nn.conv2d(X, w, strides=[1, 1, 1, 1], padding='SAME')) # l1a shape=(?, 28, 28, 32)
-    l1 = tf.nn.max_pool(l1a, ksize=[1, 2, 2, 1],
-                           strides=[1, 2, 2, 1], padding='SAME') # l1 shape=(?, 14, 14, 32)
-    l1 = tf.nn.dropout(l1, p_keep_convolution)
+def model(X, c1,c2,c3,cfc, p_keep_conv, p_keep_hidden):
+    strides = [1,max_pool_size,max_pool_size,1]
+    weights = [c1,c2,c3]
 
+    layer = tf.nn.relu(tf.nn.conv2d(X, c1,
+                        strides=[1, 1, 1, 1], padding='SAME'))
+    layer = tf.nn.max_pool(layer, ksize=strides,
+                        strides=strides, padding='SAME')
+    layer = tf.nn.dropout(layer, p_keep_conv)
 
-    l3 = tf.reshape(l1, [-1, w_fc.get_shape().as_list()[0]])    # reshape to (?, 14x14x32)
-    l3 = tf.nn.dropout(l3, p_keep_convolution)
+    if(cnn_layer_size > 1):
+        for i in range(1,cnn_layer_size):
+            layer = tf.nn.relu(tf.nn.conv2d(layer, weights[i],
+                                strides=[1, 1, 1, 1], padding='SAME'))
+            layer = tf.nn.max_pool(layer, ksize=strides,
+                                strides=strides, padding='SAME')
+            layer = tf.nn.dropout(layer, p_keep_conv)
 
-    l4 = tf.nn.relu(tf.matmul(l3, w_fc))
-    l4 = tf.nn.dropout(l4, p_keep_hidden)
+    flaten_layer = tf.reshape(layer, [-1,cfc.get_shape().as_list()[0]])        # normalization
 
-    pyx = tf.matmul(l4, w_o)
-    print("l1a:", l1a.shape, "\nl1:", l1.shape, "\nl3:", l3.shape, "\nl4:", l4.shape, "\npyx:", pyx.shape)
+    l5 = tf.nn.relu(tf.matmul(flaten_layer,
+                        cfc))
+    l5 = tf.nn.dropout(l5, p_keep_hidden)
+
+    pyx = tf.matmul(l5,init_weights(shape=[625, 10]))
     return pyx
 
 ############################
@@ -41,22 +54,25 @@ with tf.name_scope("Data") as scope:                    # Training data shape: (
     y_train = utils.to_categorical(Ytr)                 # Training label shape: (50000, 10)
     y_test = utils.to_categorical(Yte)                  # Testing label shape: (10000, 10)
 
-    x_train = x_train.astype('float32') / 255.0         # Normalize input dataset
-    x_test = x_test.astype('float32') / 255.0           # Also, labels are one-hot
+    x_train = x_train.astype('float32') / 255.0
+    x_test = x_test.astype('float32') / 255.0
 
 with tf.name_scope("Placeholders") as scope:
-    X = tf.placeholder("float", [None, 28, 28, 1])
-    Y = tf.placeholder("float", [None, 10])
+    X = tf.placeholder("float", [None, 32, 32, 3])          # input x
+    Y = tf.placeholder("float", [None, 10])                 # output y
 
 with tf.name_scope("Weights") as scope:
-    w = init_weights([3, 3, 1, 32])       # 3x3x1 conv, 32 outputs
-    w_fc = init_weights([14 * 14 * 32, 625]) # FC 32 * 14 * 14 inputs, 625 outputs
-    w_o = init_weights([625, 10])         # FC 625 inputs, 10 outputs (labels)
+    c1 = init_weights([3, 3, 3, 64])
+    c2 = init_weights([3, 3, 64, 128])
+    c3 = init_weights([5, 5, 128, 256])
+    a = 64 * (2 ** (cnn_layer_size-1))
+    b = 32 / (max_pool_size ** cnn_layer_size)
+    cfc = init_weights([a*b*b,625])
 
 with tf.name_scope("Model") as scope:
-    p_keep_convolution = tf.placeholder("float")
+    p_keep_conv = tf.placeholder("float")
     p_keep_hidden = tf.placeholder("float")
-    py_x = model(X, w, w_fc, w_o, p_keep_conv, p_keep_hidden)
+    py_x = model(X, c1,c2,c3,cfc, p_keep_conv, p_keep_hidden)
 
 with tf.name_scope("Functions") as scope:
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=py_x, labels=Y))
@@ -66,24 +82,24 @@ with tf.name_scope("Functions") as scope:
 #########################
 ######## Runtime ########
 #########################
-'''
+
 # Launch the graph in a session
 with tf.Session() as sess:
     # you need to initialize all variables
     tf.global_variables_initializer().run()
 
     for i in range(10):
-        training_batch = zip(range(0, len(trX), batch_size),
-                             range(batch_size, len(trX)+1, batch_size))
+        training_batch = zip(range(0, len(x_train), batch_size),
+                             range(batch_size, len(x_train)+1, batch_size))
         for start, end in training_batch:
-            sess.run(train_op, feed_dict={X: trX[start:end], Y: trY[start:end],
+            sess.run(train_op, feed_dict={X: x_train[start:end], Y: y_train[start:end],
                                           p_keep_conv: 0.8, p_keep_hidden: 0.5})
 
-        test_indices = np.arange(len(teX)) # Get A Test Batch
+        test_indices = np.arange(len(x_test)) # Get A Test Batch
         np.random.shuffle(test_indices)
         test_indices = test_indices[0:test_size]
 
-        print(i, np.mean(np.argmax(teY[test_indices], axis=1) ==
-                         sess.run(predict_op, feed_dict={X: teX[test_indices],
+        print(i, np.mean(np.argmax(y_test[test_indices], axis=1) ==
+                         sess.run(predict_op, feed_dict={X: x_test[test_indices],
                                                          p_keep_conv: 1.0,
-                                                         p_keep_hidden: 1.0})))'''
+                                                         p_keep_hidden: 1.0})))
