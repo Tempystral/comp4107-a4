@@ -5,11 +5,11 @@ import tensorflow.keras.utils as utils
 from tensorflow.keras.datasets import cifar10
 tf.logging.set_verbosity(tf.logging.ERROR)
 
-batch_size = 128
-test_size = 256
+batch_size = 200
+test_size = 400
 
-cnn_layer_size = 3
-max_pool_size = 2 # the inner two values of ksize
+cnn_layer_size = 2
+max_pool_size = 4 # the inner two values of ksize
 
 ###########################
 ######## Functions ########
@@ -50,9 +50,13 @@ def model(X, c1,c2,c3,cfc, p_keep_conv, p_keep_hidden):
 ############################
 
 with tf.name_scope("Data") as scope:                    # Training data shape: (50000, 32, 32, 3)
-    (x_train, Ytr), (x_test, Yte) = cifar10.load_data() # Testing data shape: (10000, 32, 32, 3)
+    (Xtr, Ytr), (Xte, Yte) = cifar10.load_data() # Testing data shape: (10000, 32, 32, 3)
+    x_train = Xtr; x_test = Xte
     y_train = utils.to_categorical(Ytr)                 # Training label shape: (50000, 10)
     y_test = utils.to_categorical(Yte)                  # Testing label shape: (10000, 10)
+    #x_train = Xtr[:5000]; x_test = Xte[:5000]
+    #y_train = utils.to_categorical(Ytr[:5000])                 # Training label shape: (50000, 10)
+    #y_test = utils.to_categorical(Yte[:5000])                  # Testing label shape: (10000, 10)
 
     x_train = x_train.astype('float32') / 255.0
     x_test = x_test.astype('float32') / 255.0
@@ -67,17 +71,30 @@ with tf.name_scope("Weights") as scope:
     c3 = init_weights([5, 5, 128, 256])
     a = 64 * (2 ** (cnn_layer_size-1))
     b = 32 / (max_pool_size ** cnn_layer_size)
-    cfc = init_weights([a*b*b,625])
-
-with tf.name_scope("Model") as scope:
+    cfc = init_weights([int(a*b*b),625])
     p_keep_conv = tf.placeholder("float")
     p_keep_hidden = tf.placeholder("float")
+
+with tf.name_scope("Model") as scope:
     py_x = model(X, c1,c2,c3,cfc, p_keep_conv, p_keep_hidden)
 
 with tf.name_scope("Functions") as scope:
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=py_x, labels=Y))
     train_op = tf.train.RMSPropOptimizer(0.001, 0.9).minimize(cost)
     predict_op = tf.argmax(py_x, 1)
+    
+
+with tf.name_scope("Summaries") as scope:
+    tf.summary.histogram("Convolution weights 1", c1)
+    tf.summary.histogram("Convolution weights 2", c2)
+    tf.summary.histogram("Convolution weights 3", c3)
+    tf.summary.histogram("Flatten weights", cfc)
+    #tf.summary.scalar("Cost", cost)
+
+    #tf.summary.scalar("train_op", train_op)
+    merged_summaries = tf.summary.merge_all()
+
+saver = tf.train.Saver()
 
 #########################
 ######## Runtime ########
@@ -87,19 +104,29 @@ with tf.name_scope("Functions") as scope:
 with tf.Session() as sess:
     # you need to initialize all variables
     tf.global_variables_initializer().run()
+    summary_writer = tf.summary.FileWriter('data/logs', graph=sess.graph)
 
-    for i in range(10):
-        training_batch = zip(range(0, len(x_train), batch_size),
-                             range(batch_size, len(x_train)+1, batch_size))
+    for i in range(20):
+        iteration = 0
+        training_batch = zip(range(0,           len(x_train),    batch_size),
+                             range(batch_size,  len(x_train)+1,  batch_size))
+        num_batches = x_train.shape[0]/batch_size
+
         for start, end in training_batch:
             sess.run(train_op, feed_dict={X: x_train[start:end], Y: y_train[start:end],
                                           p_keep_conv: 0.8, p_keep_hidden: 0.5})
+            summary_string = sess.run(merged_summaries, feed_dict={X: x_train[start:end], Y: y_train[start:end]})
+            summary_writer.add_summary(summary_string, i * num_batches + iteration)
+            iteration += 1
 
         test_indices = np.arange(len(x_test)) # Get A Test Batch
         np.random.shuffle(test_indices)
         test_indices = test_indices[0:test_size]
 
-        print(i, np.mean(np.argmax(y_test[test_indices], axis=1) ==
+        accuracy = np.mean(np.argmax(y_test[test_indices], axis=1) ==
                          sess.run(predict_op, feed_dict={X: x_test[test_indices],
                                                          p_keep_conv: 1.0,
-                                                         p_keep_hidden: 1.0})))
+                                                         p_keep_hidden: 1.0}))
+
+        print(i, accuracy)
+    saver.save(sess,"data/checkpoints/session.ckpt")
