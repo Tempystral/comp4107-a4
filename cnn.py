@@ -22,25 +22,29 @@ def model(X, c1,c2,c3,cfc, p_keep_conv, p_keep_hidden):
     strides = [1,max_pool_size,max_pool_size,1]
     weights = [c1,c2,c3]
 
-    layer = tf.nn.relu(tf.nn.conv2d(X, c1,
-                        strides=[1, 1, 1, 1], padding='SAME'))
-    layer = tf.nn.max_pool(layer, ksize=strides,
-                        strides=strides, padding='SAME')
-    layer = tf.nn.dropout(layer, p_keep_conv)
+    with tf.name_scope("Conv_Layer_0") as scope:
+        layer = tf.nn.relu(tf.nn.conv2d(X, c1,
+                            strides=[1, 1, 1, 1], padding='SAME'))
+        layer = tf.nn.max_pool(layer, ksize=strides,
+                            strides=strides, padding='SAME')
+        layer = tf.nn.dropout(layer, p_keep_conv)
 
     if(cnn_layer_size > 1):
         for i in range(1,cnn_layer_size):
-            layer = tf.nn.relu(tf.nn.conv2d(layer, weights[i],
-                                strides=[1, 1, 1, 1], padding='SAME'))
-            layer = tf.nn.max_pool(layer, ksize=strides,
-                                strides=strides, padding='SAME')
-            layer = tf.nn.dropout(layer, p_keep_conv)
+            with tf.name_scope("Conv_Layer_{}".format(i)) as scope:
+                layer = tf.nn.relu(tf.nn.conv2d(layer, weights[i],
+                                    strides=[1, 1, 1, 1], padding='SAME'))
+                layer = tf.nn.max_pool(layer, ksize=strides,
+                                    strides=strides, padding='SAME')
+                layer = tf.nn.dropout(layer, p_keep_conv)
 
-    flaten_layer = tf.reshape(layer, [-1,cfc.get_shape().as_list()[0]])        # normalization
+    with tf.name_scope("Flatten") as scope:
+        flaten_layer = tf.reshape(layer, [-1,cfc.get_shape().as_list()[0]])        # normalization
 
-    l5 = tf.nn.relu(tf.matmul(flaten_layer,
-                        cfc))
-    l5 = tf.nn.dropout(l5, p_keep_hidden)
+    with tf.name_scope("Final_Layer") as scope:
+        l5 = tf.nn.relu(tf.matmul(flaten_layer,
+                            cfc))
+        l5 = tf.nn.dropout(l5, p_keep_hidden)
 
     pyx = tf.matmul(l5,init_weights(shape=[625, 10]))
     return pyx
@@ -82,14 +86,19 @@ with tf.name_scope("Functions") as scope:
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=py_x, labels=Y))
     train_op = tf.train.RMSPropOptimizer(0.001, 0.9).minimize(cost)
     predict_op = tf.argmax(py_x, 1)
-    
+    '''with tf.name_scope("Correct_Prediction") as scope:
+        correct_prediction = tf.equal(tf.argmax(py_x, 1), tf.argmax(Y, 1))
+    with tf.name_scope("Accuracy") as scope:
+        acc = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))'''
+
+
 
 with tf.name_scope("Summaries") as scope:
     tf.summary.histogram("Convolution weights 1", c1)
     tf.summary.histogram("Convolution weights 2", c2)
     tf.summary.histogram("Convolution weights 3", c3)
     tf.summary.histogram("Flatten weights", cfc)
-    #tf.summary.scalar("Cost", cost)
+    #tf.summary.scalar("Accuracy", acc)
 
     #tf.summary.scalar("train_op", train_op)
     merged_summaries = tf.summary.merge_all()
@@ -115,10 +124,12 @@ with tf.Session() as sess:
         for start, end in training_batch:
             sess.run(train_op, feed_dict={X: x_train[start:end], Y: y_train[start:end],
                                           p_keep_conv: 0.8, p_keep_hidden: 0.5})
+            #sess.run(acc, feed_dict={X: x_train[start:end], Y: y_train[start:end], p_keep_conv: 1.00, p_keep_hidden: 1.00})
             summary_string = sess.run(merged_summaries, feed_dict={X: x_train[start:end], Y: y_train[start:end]})
             summary_writer.add_summary(summary_string, i * num_batches + iteration)
             iteration += 1
 
+        # Test on a random sample of the test data
         test_indices = np.arange(len(x_test)) # Get A Test Batch
         np.random.shuffle(test_indices)
         test_indices = test_indices[0:test_size]
