@@ -1,3 +1,35 @@
+'''
+Code by Elijah Doern and Yuxin Gao
+Tensorboard can be used to view weight histograms by running tensorboard --logdir=data/logs
+Computational graph is included in part 3 - computational graph.pdf
+Accuracy charts can be found in part 5 - accuracy.pdf
+
+Patches for part 6 were created using the values for Scenario 1, located in folder "part 6 - patches"
+
+Different scenarios were run manually
+Scenarios investigated:
+
+    # Scenario 1
+        cnn_layer_size = 2
+        max_pool_size = 4
+
+    # Scenario 2
+        cnn_layer_size = 1
+        max_pool_size = 4
+
+    # Scenario 3
+        cnn_layer_size = 3
+        max_pool_size = 2
+
+    # Scenario 4
+        cnn_layer_size = 2
+        max_pool_size = 2
+
+    # Scenario 5
+        cnn_layer_size = 1
+        max_pool_size = 2
+
+'''
 import tensorflow as tf
 import numpy as np
 import tensorflow.keras.utils as utils
@@ -19,23 +51,24 @@ def init_weights(shape):
     return tf.Variable(tf.random_normal(shape, stddev=0.01))
 
 def model(X, c1,c2,c3,cfc, p_keep_conv, p_keep_hidden):
-    strides = [1,max_pool_size,max_pool_size,1]
+    stride_arr = [1,max_pool_size,max_pool_size,1]
     weights = [c1,c2,c3]
 
     with tf.name_scope("Conv_Layer_0") as scope:
         layer = tf.nn.relu(tf.nn.conv2d(X, c1,
                             strides=[1, 1, 1, 1], padding='SAME'))
-        layer = tf.nn.max_pool(layer, ksize=strides,
-                            strides=strides, padding='SAME')
+        layer = tf.nn.max_pool(layer, ksize=stride_arr,
+                            strides=stride_arr, padding='SAME')
         layer = tf.nn.dropout(layer, p_keep_conv)
+        #print(layer)
 
     if(cnn_layer_size > 1):
         for i in range(1,cnn_layer_size):
             with tf.name_scope("Conv_Layer_{}".format(i)) as scope:
                 layer = tf.nn.relu(tf.nn.conv2d(layer, weights[i],
                                     strides=[1, 1, 1, 1], padding='SAME'))
-                layer = tf.nn.max_pool(layer, ksize=strides,
-                                    strides=strides, padding='SAME')
+                layer = tf.nn.max_pool(layer, ksize=stride_arr,
+                                    strides=stride_arr, padding='SAME')
                 layer = tf.nn.dropout(layer, p_keep_conv)
 
     with tf.name_scope("Flatten") as scope:
@@ -54,7 +87,7 @@ def model(X, c1,c2,c3,cfc, p_keep_conv, p_keep_hidden):
 ############################
 
 with tf.name_scope("Data") as scope:                    # Training data shape: (50000, 32, 32, 3)
-    (Xtr, Ytr), (Xte, Yte) = cifar10.load_data() # Testing data shape: (10000, 32, 32, 3)
+    (Xtr, Ytr), (Xte, Yte) = cifar10.load_data()        # Testing data shape: (10000, 32, 32, 3)
     x_train = Xtr; x_test = Xte
     y_train = utils.to_categorical(Ytr)                 # Training label shape: (50000, 10)
     y_test = utils.to_categorical(Yte)                  # Testing label shape: (10000, 10)
@@ -86,10 +119,6 @@ with tf.name_scope("Functions") as scope:
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=py_x, labels=Y))
     train_op = tf.train.RMSPropOptimizer(0.001, 0.9).minimize(cost)
     predict_op = tf.argmax(py_x, 1)
-    '''with tf.name_scope("Correct_Prediction") as scope:
-        correct_prediction = tf.equal(tf.argmax(py_x, 1), tf.argmax(Y, 1))
-    with tf.name_scope("Accuracy") as scope:
-        acc = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))'''
 
 
 
@@ -98,7 +127,6 @@ with tf.name_scope("Summaries") as scope:
     tf.summary.histogram("Convolution weights 2", c2)
     tf.summary.histogram("Convolution weights 3", c3)
     tf.summary.histogram("Flatten weights", cfc)
-    #tf.summary.scalar("Accuracy", acc)
 
     #tf.summary.scalar("train_op", train_op)
     merged_summaries = tf.summary.merge_all()
@@ -109,35 +137,40 @@ saver = tf.train.Saver()
 ######## Runtime ########
 #########################
 
-# Launch the graph in a session
-with tf.Session() as sess:
-    # you need to initialize all variables
-    tf.global_variables_initializer().run()
-    summary_writer = tf.summary.FileWriter('data/logs', graph=sess.graph)
+def run():
+    # Launch the graph in a session
+    with tf.Session() as sess:
+        # you need to initialize all variables
+        tf.global_variables_initializer().run()
+        summary_writer = tf.summary.FileWriter('data/logs', graph=sess.graph)
 
-    for i in range(20):
-        iteration = 0
-        training_batch = zip(range(0,           len(x_train),    batch_size),
-                             range(batch_size,  len(x_train)+1,  batch_size))
-        num_batches = x_train.shape[0]/batch_size
+        print("Number of convolutions: {}, pooling window: {}".format(cnn_layer_size, max_pool_size))
 
-        for start, end in training_batch:
-            sess.run(train_op, feed_dict={X: x_train[start:end], Y: y_train[start:end],
-                                          p_keep_conv: 0.8, p_keep_hidden: 0.5})
-            #sess.run(acc, feed_dict={X: x_train[start:end], Y: y_train[start:end], p_keep_conv: 1.00, p_keep_hidden: 1.00})
-            summary_string = sess.run(merged_summaries, feed_dict={X: x_train[start:end], Y: y_train[start:end]})
-            summary_writer.add_summary(summary_string, i * num_batches + iteration)
-            iteration += 1
+        for i in range(15):
+            iteration = 0
+            training_batch = zip(range(0,           len(x_train),    batch_size),
+                                 range(batch_size,  len(x_train)+1,  batch_size))
+            num_batches = x_train.shape[0]/batch_size
 
-        # Test on a random sample of the test data
-        test_indices = np.arange(len(x_test)) # Get A Test Batch
-        np.random.shuffle(test_indices)
-        test_indices = test_indices[0:test_size]
+            for start, end in training_batch:
+                sess.run(train_op, feed_dict={X: x_train[start:end], Y: y_train[start:end],
+                                              p_keep_conv: 0.8, p_keep_hidden: 0.5})
+                #sess.run(acc, feed_dict={X: x_train[start:end], Y: y_train[start:end], p_keep_conv: 1.00, p_keep_hidden: 1.00})
+                summary_string = sess.run(merged_summaries, feed_dict={X: x_train[start:end], Y: y_train[start:end]})
+                summary_writer.add_summary(summary_string, i * num_batches + iteration)
+                iteration += 1
 
-        accuracy = np.mean(np.argmax(y_test[test_indices], axis=1) ==
-                         sess.run(predict_op, feed_dict={X: x_test[test_indices],
-                                                         p_keep_conv: 1.0,
-                                                         p_keep_hidden: 1.0}))
+            # Test on a random sample of the test data
+            test_indices = np.arange(len(x_test)) # Get A Test Batch
+            np.random.shuffle(test_indices)
+            test_indices = test_indices[0:test_size]
 
-        print(i, accuracy)
-    saver.save(sess,"data/checkpoints/session.ckpt")
+            accuracy = np.mean(np.argmax(y_test[test_indices], axis=1) ==
+                             sess.run(predict_op, feed_dict={X: x_test[test_indices],
+                                                             p_keep_conv: 1.0,
+                                                             p_keep_hidden: 1.0}))
+
+            print(i, accuracy)
+        saver.save(sess,"data/checkpoints/session.ckpt")
+
+run()
